@@ -1,0 +1,139 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/Beingpax/VoiceInk.git
+          git fetch upstream --tags
+
+      - name: Merge upstream/main
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git merge --no-edit upstream/main; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            gh label create sync-conflict --force --description "Weekly upstream sync hit a merge conflict" --color d93f0b || true
+            if [ -z "$(gh issue list --label sync-conflict --state open --json number --jq '.[].number')" ]; then
+              printf '%s\n' \
+                "The weekly sync failed to merge \`upstream/main\` (Beingpax/VoiceInk) into \`main\` because of merge conflicts with the fork's changes. Nothing was pushed." \
+                "" \
+                "Resolve locally:" \
+                '```' \
+                "git fetch https://github.com/Beingpax/VoiceInk.git main" \
+                "git merge FETCH_HEAD" \
+                "# resolve conflicts, commit, push" \
+                '```' \
+                "" \
+                "Then re-run the *Sync upstream* workflow to pick up any pending releases." > /tmp/issue-body.md
+              gh issue create \
+                --title "Upstream sync conflict ($(date +%F))" \
+                --label sync-conflict \
+                --body-file /tmp/issue-body.md
+            fi
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine new stable upstream releases
+        id: releases
+        if: steps.merge.outputs.conflict == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          UPSTREAM_TAGS=$(gh api repos/Beingpax/VoiceInk/releases --paginate \
+            --jq '.[] | select(.prerelease == false and .draft == false) | .tag_name')
+          FORK_RELEASES=$(gh release list -R "$GITHUB_REPOSITORY" --json tagName --jq '.[].tagName' || true)
+
+          if [ -z "$FORK_RELEASES" ]; then
+            echo "Fork has no releases yet; skipping automatic release builds (publish a baseline first)."
+            echo "tags=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FORK_MAX=$(printf '%s\n' "$FORK_RELEASES" | sort -V | tail -1)
+          CANDIDATES=""
+          for TAG in $UPSTREAM_TAGS; do
+            # Only tags strictly newer than the fork's newest release
+            NEWEST=$(printf '%s\n%s\n' "$FORK_MAX" "$TAG" | sort -V | tail -1)
+            if [ "$NEWEST" = "$TAG" ] && [ "$TAG" != "$FORK_MAX" ]; then
+              if ! printf '%s\n' "$FORK_RELEASES" | grep -qxF "$TAG"; then
+                CANDIDATES="$CANDIDATES $TAG"
+              fi
+            fi
+          done
+          CANDIDATES=$(printf '%s\n' $CANDIDATES | sort -V | tr '\n' ' ' | sed 's/ $//' || true)
+          echo "New stable releases to build: ${CANDIDATES:-none}"
+          echo "tags=$CANDIDATES" >> "$GITHUB_OUTPUT"
+
+      - name: Merge release tags not yet reachable from main
+        id: tagmerge
+        if: steps.merge.outputs.conflict == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BUILDABLE=""
+          for TAG in ${{ steps.releases.outputs.tags }}; do
+            if git merge-base --is-ancestor "refs/tags/$TAG" HEAD; then
+              BUILDABLE="$BUILDABLE $TAG"
+            elif git merge --no-edit "refs/tags/$TAG"; then
+              BUILDABLE="$BUILDABLE $TAG"
+            else
+              git merge --abort
+              gh label create sync-conflict --force || true
+              gh issue create \
+                --title "Upstream sync conflict merging release tag $TAG" \
+                --label sync-conflict \
+                --body "Merging upstream release tag \`$TAG\` into \`main\` produced conflicts. Later releases were skipped. Resolve manually and re-run the *Sync upstream* workflow." || true
+              break
+            fi
+          done
+          echo "tags=$(echo $BUILDABLE | sed 's/^ *//')" >> "$GITHUB_OUTPUT"
+
+      - name: Push main and tags
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          git push origin main
+          git push origin --tags
+
+      - name: Dispatch release builds
+        if: steps.merge.outputs.conflict == 'false' && steps.tagmerge.outputs.tags != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for TAG in ${{ steps.tagmerge.outputs.tags }}; do
+            echo "Dispatching build for $TAG"
+            gh workflow run build-release.yml -R "$GITHUB_REPOSITORY" -f tag="$TAG"
+          done

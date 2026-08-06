@@ -1,0 +1,140 @@
+name: Build release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build (e.g. v2.1). Must match MARKETING_VERSION on main.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+
+env:
+  WHISPER_REF: v1.9.2
+  SPARKLE_VERSION: 2.9.2
+  FEED_URL: https://raw.githubusercontent.com/peterjuras/VoiceInk/sparkle-feed/appcast.xml
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Verify tag matches project version
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          MV=$(sed -n 's/.*MARKETING_VERSION = \([^;]*\);.*/\1/p' VoiceInk.xcodeproj/project.pbxproj | head -1)
+          if [ "v$MV" != "$TAG" ]; then
+            echo "::error::MARKETING_VERSION on main is '$MV' but tag '$TAG' was requested. Sync main first."
+            exit 1
+          fi
+
+      - name: Cache whisper.cpp xcframework
+        id: whisper-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/VoiceInk-Dependencies/whisper.cpp/build-apple/whisper.xcframework
+          key: whisper-xcframework-${{ env.WHISPER_REF }}-${{ runner.arch }}
+
+      - name: Build whisper.cpp xcframework
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          rm -rf ~/VoiceInk-Dependencies/whisper.cpp
+          git clone --depth 1 --branch "$WHISPER_REF" https://github.com/ggml-org/whisper.cpp.git ~/VoiceInk-Dependencies/whisper.cpp
+          cd ~/VoiceInk-Dependencies/whisper.cpp
+          ./build-xcframework.sh
+
+      - name: Import signing certificate
+        env:
+          P12_BASE64: ${{ secrets.SIGNING_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          # Self-signed cert must be trusted for codesign to consider the identity valid
+          openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -passin pass:"$P12_PASSWORD" -clcerts -nokeys -out "$RUNNER_TEMP/cert.pem" \
+            || openssl pkcs12 -legacy -in "$RUNNER_TEMP/cert.p12" -passin pass:"$P12_PASSWORD" -clcerts -nokeys -out "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          if security find-identity -v -p codesigning "$KEYCHAIN" | grep -q "0 valid identities"; then
+            echo "::error::Signing identity is not valid after import"
+            exit 1
+          fi
+          rm "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
+
+      - name: Build app
+        run: DERIVED="$RUNNER_TEMP/derived" scripts/fork/build-app.sh
+
+      - name: Verify app
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/derived/Build/Products/Release/VoiceInk.app"
+          codesign --verify --strict --deep "$APP"
+          FEED=$(plutil -extract SUFeedURL raw "$APP/Contents/Info.plist")
+          if [ "$FEED" != "$FEED_URL" ]; then
+            echo "::error::Built app SUFeedURL '$FEED' does not match fork feed '$FEED_URL'"
+            exit 1
+          fi
+
+      - name: Create DMG
+        run: scripts/fork/make-dmg.sh "$RUNNER_TEMP/derived/Build/Products/Release/VoiceInk.app" "$RUNNER_TEMP/VoiceInk.dmg"
+
+      - name: Download Sparkle tools
+        run: |
+          set -euo pipefail
+          curl -sL -o "$RUNNER_TEMP/sparkle.tar.xz" "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle-dist"
+          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle-dist"
+
+      - name: Generate appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          SPARKLE_BIN="$RUNNER_TEMP/sparkle-dist/bin" scripts/fork/make-appcast.sh \
+            "$RUNNER_TEMP/derived/Build/Products/Release/VoiceInk.app" \
+            "$RUNNER_TEMP/VoiceInk.dmg" \
+            "${{ inputs.tag }}" \
+            "$RUNNER_TEMP/appcast.xml"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          gh release create "$TAG" "$RUNNER_TEMP/VoiceInk.dmg" \
+            --title "VoiceInk $TAG (fork build)" \
+            --notes "Fork build from \`$(git rev-parse HEAD)\`. Upstream release notes: https://github.com/Beingpax/VoiceInk/releases/tag/$TAG"
+
+      - name: Push appcast to sparkle-feed branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FEED_DIR="$RUNNER_TEMP/feed"
+          mkdir -p "$FEED_DIR"
+          cd "$FEED_DIR"
+          git init -b sparkle-feed
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp "$RUNNER_TEMP/appcast.xml" appcast.xml
+          git add appcast.xml
+          git commit -m "appcast: ${{ inputs.tag }}"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" sparkle-feed

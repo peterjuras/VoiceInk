@@ -5,9 +5,9 @@
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://beingpax.github.io/VoiceInk/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/peterjuras/VoiceInk/sparkle-feed/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>gnXep9+mzNXFSbX0jU7CpLtubcQ5WVfVGe0BxsSdS40=</string>
+	<string>3tJtSpw3/2wLmpbGQi+Psep42ZkGrXECJeqbHIuFHdk=</string>
 	<key>LSUIElement</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
