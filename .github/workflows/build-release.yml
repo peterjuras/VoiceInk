@@ -98,8 +98,8 @@ jobs:
           # re-sign explicitly. A stable identity keeps TCC grants across updates.
           codesign --force --deep --options runtime --preserve-metadata=entitlements \
             --sign "VoiceInk Fork Signing" "$APP"
-          codesign -dv "$APP" 2>&1 | grep -E 'Authority|Signature'
-          if ! codesign -dv "$APP" 2>&1 | grep -q 'Authority=VoiceInk Fork Signing'; then
+          codesign -dvv "$APP" 2>&1 | grep -E 'Authority|Signature'
+          if ! codesign -dvv "$APP" 2>&1 | grep -q 'Authority=VoiceInk Fork Signing'; then
             echo "::error::App is not signed with the fork identity"
             exit 1
           fi
