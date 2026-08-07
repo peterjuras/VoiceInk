@@ -38,6 +38,14 @@ jobs:
             exit 1
           fi
 
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
       - name: Cache whisper.cpp xcframework
         id: whisper-cache
         uses: actions/cache@v4
