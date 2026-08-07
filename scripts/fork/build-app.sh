@@ -20,6 +20,8 @@ cd "$REPO_ROOT"
 xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Release \
     -derivedDataPath "$DERIVED" \
     -xcconfig LocalBuild.xcconfig \
+    -skipPackagePluginValidation \
+    -skipMacroValidation \
     CODE_SIGN_IDENTITY="$IDENTITY" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=YES \
