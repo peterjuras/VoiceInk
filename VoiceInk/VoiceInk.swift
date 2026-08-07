@@ -359,6 +359,20 @@ struct VoiceInkApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
 
+            CommandGroup(replacing: .appInfo) {
+                Button("About VoiceInk") {
+                    NSApplication.shared.orderFrontStandardAboutPanel(options: [
+                        .credits: NSAttributedString(
+                            string: "Fork build from github.com/peterjuras/VoiceInk",
+                            attributes: [
+                                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                                .foregroundColor: NSColor.secondaryLabelColor,
+                            ]
+                        )
+                    ])
+                }
+            }
+
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updaterViewModel: updaterViewModel)
             }

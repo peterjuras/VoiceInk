@@ -286,6 +286,8 @@ struct DashboardContent: View {
                 displayNameView
 
                 dismissingSpacer
+
+                forkBadge
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .lineLimit(1)
@@ -303,6 +305,21 @@ struct DashboardContent: View {
             .onTapGesture(perform: dismissDisplayNameEditorIfNeeded)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var forkBadge: some View {
+        Link(destination: URL(string: "https://github.com/peterjuras/VoiceInk")!) {
+            Text("peterjuras fork")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppTheme.Text.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(AppTheme.Accent.fill)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(AppTheme.Accent.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Fork build from peterjuras/VoiceInk on GitHub")
     }
 
     @ViewBuilder
