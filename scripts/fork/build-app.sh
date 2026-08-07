@@ -26,7 +26,7 @@ xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Release \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=YES \
     DEVELOPMENT_TEAM="" \
-    CODE_SIGN_ENTITLEMENTS="$REPO_ROOT/VoiceInk/VoiceInk.local.entitlements" \
+    CODE_SIGN_ENTITLEMENTS="$REPO_ROOT/VoiceInk/VoiceInk.fork.entitlements" \
     SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) LOCAL_BUILD' \
     build
 
