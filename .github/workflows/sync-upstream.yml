@@ -17,8 +17,12 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      # Pin gh to the fork: once the `upstream` remote exists, gh would
+      # otherwise resolve Beingpax/VoiceInk and fail with HTTP 403.
+      GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 0
