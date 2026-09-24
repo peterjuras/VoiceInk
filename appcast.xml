@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>VoiceInk (peterjuras fork)</title>
+        <item>
+            <title>2.20</title>
+            <pubDate>Thu, 24 Sep 2026 12:09:51 +0000</pubDate>
+            <sparkle:version>220</sparkle:version>
+            <sparkle:shortVersionString>2.20</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <p>Fork build of VoiceInk v2.20. See the <a href="https://github.com/Beingpax/VoiceInk/releases/tag/v2.20">upstream release notes</a>.</p>
+            ]]></description>
+            <enclosure url="https://github.com/peterjuras/VoiceInk/releases/download/v2.20/VoiceInk.dmg" length="52757106" type="application/octet-stream" sparkle:edSignature="vvX1+Hi7B5JCD1q9qpSslCB6ZBJLkRDe1U/AKmmH9Z8YWSuqL8iaWAL6TATpS0Og2ckyk4DsKL4s8NlTrkI2BA=="/>
+        </item>
+    </channel>
+</rss>
