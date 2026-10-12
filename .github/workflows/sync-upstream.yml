@@ -47,25 +47,32 @@ jobs:
             echo "conflict=false" >> "$GITHUB_OUTPUT"
           else
             git merge --abort
-            gh label create sync-conflict --force --description "Weekly upstream sync hit a merge conflict" --color d93f0b || true
-            if [ -z "$(gh issue list --label sync-conflict --state open --json number --jq '.[].number')" ]; then
-              printf '%s\n' \
-                "The weekly sync failed to merge \`upstream/main\` (Beingpax/VoiceInk) into \`main\` because of merge conflicts with the fork's changes. Nothing was pushed." \
-                "" \
-                "Resolve locally:" \
-                '```' \
-                "git fetch https://github.com/Beingpax/VoiceInk.git main" \
-                "git merge FETCH_HEAD" \
-                "# resolve conflicts, commit, push" \
-                '```' \
-                "" \
-                "Then re-run the *Sync upstream* workflow to pick up any pending releases." > /tmp/issue-body.md
-              gh issue create \
-                --title "Upstream sync conflict ($(date +%F))" \
-                --label sync-conflict \
-                --body-file /tmp/issue-body.md
+            printf '%s\n' \
+              "The weekly sync failed to merge \`upstream/main\` (Beingpax/VoiceInk) into \`main\` because of merge conflicts with the fork's changes. Nothing was pushed." \
+              "" \
+              "Resolve locally:" \
+              '```' \
+              "git fetch https://github.com/Beingpax/VoiceInk.git main" \
+              "git merge FETCH_HEAD" \
+              "# resolve conflicts, commit, push" \
+              '```' \
+              "" \
+              "Then re-run the *Sync upstream* workflow to pick up any pending releases." > /tmp/issue-body.md
+            cat /tmp/issue-body.md >> "$GITHUB_STEP_SUMMARY"
+            # Issues are disabled on forks by default; the failed run (and its
+            # notification email) is the signal then, so this is best-effort.
+            if [ "$(gh repo view --json hasIssuesEnabled --jq .hasIssuesEnabled)" = "true" ]; then
+              gh label create sync-conflict --force --description "Weekly upstream sync hit a merge conflict" --color d93f0b || true
+              if [ -z "$(gh issue list --label sync-conflict --state open --json number --jq '.[].number')" ]; then
+                gh issue create \
+                  --title "Upstream sync conflict ($(date +%F))" \
+                  --label sync-conflict \
+                  --body-file /tmp/issue-body.md || true
+              fi
             fi
             echo "conflict=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Merge conflict with upstream/main; see the job summary for how to resolve it."
+            exit 1
           fi
 
       - name: Determine new stable upstream releases
@@ -117,6 +124,7 @@ jobs:
               BUILDABLE="$BUILDABLE $TAG"
             else
               git merge --abort
+              echo "::warning::Merging upstream release tag $TAG conflicted; later releases were skipped. Resolve manually and re-run the workflow."
               gh label create sync-conflict --force || true
               gh issue create \
                 --title "Upstream sync conflict merging release tag $TAG" \
